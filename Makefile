@@ -10,7 +10,7 @@ $(PROJ): $(PROJ).c
 	
 
 run: $(PROJ)
-	./$(PROJ) 3 2 3 4 5 6
+	./$(PROJ) 1 2 0 0 0 0
 
 clean:
 	rm $(PROJ)
