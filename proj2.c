@@ -13,9 +13,10 @@
 
 int A, C;
 pid_t adultGen, childGen, adult, child;
-int *line, *waitingEnter, *left;
+int *line, *waitingEnter, *waitingLeave, *left;
+sem_t *enter, *leave, *finish, *lock;//, *waitForEnter;
 
-void simulAdult(int id, int WT, sem_t *enter, sem_t *leave, sem_t *finish, int *adultsInCenter, int *childsInCenter, int *totalAdults){
+void simulAdult(int id, int WT, int *adultsInCenter, int *childsInCenter, int *totalAdults/*, FILE *file*/){
     int pid = fork();
 
     //kontrola zda byl fork uspesny
@@ -26,44 +27,76 @@ void simulAdult(int id, int WT, sem_t *enter, sem_t *leave, sem_t *finish, int *
 
     //kod pro proces adult
     if(pid == 0) {
+        sem_wait(lock);
         fprintf(stdout,"%d\tA %d\t: started\n", (*line)++, id);fflush(stdout);
+        sem_post(lock);
+
+        sem_wait(lock);
         fprintf(stdout,"%d\tA %d\t: enter\n", (*line)++, id);fflush(stdout);
         (*adultsInCenter)++;
-        usleep(WT);
+        sem_post(lock);
 
+        sem_wait(lock);
         if(*childsInCenter < *adultsInCenter * 3) {
             for (int i = *waitingEnter; i > 0; i--) {
                 sem_post(enter);
             }
         }
+        sem_post(lock);
 
+        usleep(WT);
+
+        sem_wait(lock);
         fprintf(stdout,"%d\tA %d\t: trying to leave\n", (*line)++, id);fflush(stdout);
+        sem_post(lock);
 
+        sem_wait(lock);
         if(*childsInCenter > (*adultsInCenter-1) * 3) {
+            (*waitingLeave)++;
             fprintf(stdout, "%d\tA %d\t: waiting: %d: %d\n", (*line)++, id, *adultsInCenter, *childsInCenter);
             fflush(stdout);
+            sem_post(lock);
             sem_wait(leave);
+            (*waitingLeave)--;
+        }else{
+            sem_post(lock);
         }
 
-        fprintf(stdout,"%d\tA %d\t: leave\n", (*line)++, id);fflush(stdout);
+        sem_wait(lock);
         (*adultsInCenter)--;
+        fprintf(stdout,"%d\tA %d\t: leave\n", (*line)++, id);fflush(stdout);
         (*totalAdults)++;
         (*left)++;
+        sem_post(lock);
 
+        sem_wait(lock);
+        if(*totalAdults == A){
+            for (int i = *waitingEnter; i > 0; i--) {
+                sem_post(enter);
+            }
+        }
+
+        sem_post(lock);
+
+        sem_wait(lock);
         if(*left == A+C){
             for (int i = 0; i < A+C; ++i) {
                 sem_post(finish);
             }
         }
+        sem_post(lock);
+
         sem_wait(finish);
+        sem_wait(lock);
         fprintf(stdout,"%d\tA %d\t: finished\n", (*line)++, id);fflush(stdout);
+        sem_post(lock);
         exit(0);
     } else{
         adult = pid;
     }
 }
 
-void simulChild(int id, int WT, sem_t *enter, sem_t *leave, sem_t *finish, int *adultsInCenter, int *childsInCenter, int *totalAdults){
+void simulChild(int id, int WT, int *adultsInCenter, int *childsInCenter, int *totalAdults/*, FILE *stdout*/){
     int pid = fork();
 
     //kontrola zda byl fork uspesny
@@ -74,34 +107,57 @@ void simulChild(int id, int WT, sem_t *enter, sem_t *leave, sem_t *finish, int *
 
     //kod pro proces child
     if(pid == 0) {
+        sem_wait(lock);
         fprintf(stdout,"%d\tC %d\t: started\n", (*line)++, id);fflush(stdout);
+        sem_post(lock);
 
-        if(*childsInCenter == *adultsInCenter * 3 && *totalAdults < A){
-            fprintf(stdout,"%d\tC %d\t: waiting: %d: %d\n", (*line)++, id, *adultsInCenter, *childsInCenter);fflush(stdout);
+        sem_wait(lock);
+        if((*childsInCenter == *adultsInCenter * 3 && *totalAdults < A) || *waitingLeave) {
             (*waitingEnter)++;
+            fprintf(stdout, "%d\tC %d\t: waiting: %d: %d\n", (*line)++, id, *adultsInCenter, *childsInCenter);
+            fflush(stdout);
+            sem_post(lock);
             sem_wait(enter);
+            (*waitingEnter)--;
+        }else{
+            sem_post(lock);
         }
 
+        sem_wait(lock);
         fprintf(stdout,"%d\tC %d\t: enter\n", (*line)++, id);fflush(stdout);
         (*childsInCenter)++;
+        sem_post(lock);
+
         usleep(WT);
 
+        sem_wait(lock);
         fprintf(stdout,"%d\tC %d\t: trying to leave\n", (*line)++, id);fflush(stdout);
+        sem_post(lock);
+
+        sem_wait(lock);
         fprintf(stdout,"%d\tC %d\t: leave\n", (*line)++, id);fflush(stdout);
         (*childsInCenter)--;
         (*left)++;
+        sem_post(lock);
 
+        sem_wait(lock);
         if(*childsInCenter <= (*adultsInCenter-1) * 3) {
             sem_post(leave);
         }
+        sem_post(lock);
 
+        sem_wait(lock);
         if(*left == A+C){
             for (int i = 0; i < A+C; ++i) {
                 sem_post(finish);
             }
         }
+        sem_post(lock);
+
         sem_wait(finish);
+        sem_wait(lock);
         fprintf(stdout,"%d\tC %d\t: finished\n", (*line)++, id);fflush(stdout);
+        sem_post(lock);
         exit(0);
     }else{
         child = pid;
@@ -141,12 +197,19 @@ int main(int argc, char **argv) {
     int *childsInCentre;
     int *lineNumber;
 */
+    FILE *file;
+    if((file = fopen("proj2.out","w")) == NULL){
+        fprintf(stderr, "Soubor se nepodarilo otevrit.\n");
+    }
 
     line = mmap(NULL, intSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     *line = 1;
 
     waitingEnter = mmap(NULL, intSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     *waitingEnter = 0;
+
+    waitingLeave = mmap(NULL, intSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    *waitingLeave = 0;
 
     left = mmap(NULL, intSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     *left = 0;
@@ -163,16 +226,21 @@ int main(int argc, char **argv) {
     totalAdults = mmap(NULL, intSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     *totalAdults = 0;
 
-    sem_t *enter;
     enter = mmap(NULL, semSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     sem_init(enter, 1, 0);
-    sem_t *leave;
+
     leave = mmap(NULL, semSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     sem_init(leave, 1, 0);
-    sem_t *finish;
+
     finish = mmap(NULL, semSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
     sem_init(finish, 1, 0);
 
+    lock = mmap(NULL, semSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    sem_init(lock, 1, 1);
+
+    /*waitForEnter = mmap(NULL, semSIZE, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    sem_init(waitForEnter, 1, 0);
+*/
     srand(time(NULL));
 
 
@@ -190,7 +258,7 @@ int main(int argc, char **argv) {
         for (int i = 1; i <= A; ++i) {
             if(AGT) usleep(rand()%(AGT+1)*1000);
             if(AWT) WT = rand()%(AWT+1)*1000;
-            simulAdult(i, WT, enter, leave, finish, adultsInCenter, childsInCenter, totalAdults);
+            simulAdult(i, WT, adultsInCenter, childsInCenter, totalAdults/*, file*/);
         }
 
         waitpid(adult, NULL, 0);
@@ -211,7 +279,7 @@ int main(int argc, char **argv) {
             for (int i = 1; i <= C; ++i) {
                 if(CGT) usleep(rand() % (CGT + 1) * 1000);
                 if(CWT)WT = rand()%(CWT+1)*1000;
-                simulChild(i, WT, enter, leave, finish, adultsInCenter, childsInCenter, totalAdults);
+                simulChild(i, WT, adultsInCenter, childsInCenter, totalAdults/*, file*/);
             }
 
             waitpid(child, NULL, 0);
@@ -224,5 +292,6 @@ int main(int argc, char **argv) {
 
     waitpid(adultGen, NULL, 0);
     waitpid(childGen, NULL, 0);
+    fclose(file);
     return 0;
 }

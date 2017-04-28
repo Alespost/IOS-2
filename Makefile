@@ -7,10 +7,10 @@ all: $(proj) run
 
 $(PROJ): $(PROJ).c
 	$(CC) $(CFLAGS) $(PROJ).c -o $(PROJ) $(LDFLAGS)
-	
 
 run: $(PROJ)
 	./$(PROJ) 1 2 0 0 0 0
+	cat $(PROJ).out
 
 clean:
 	rm $(PROJ)
