@@ -37,11 +37,9 @@ void simulAdult(int id, int WT, int *adultsInCenter, int *childsInCenter, int *t
         sem_post(lock);
 
         sem_wait(lock);
-        if(*childsInCenter < *adultsInCenter * 3) {
-            for (int i = *waitingEnter; i > 0; i--) {
+            for (int i = 0; i < 3 && i < *waitingEnter; i++) {
                 sem_post(enter);
             }
-        }
         sem_post(lock);
 
         usleep(WT);
@@ -63,8 +61,8 @@ void simulAdult(int id, int WT, int *adultsInCenter, int *childsInCenter, int *t
         }
 
         sem_wait(lock);
-        (*adultsInCenter)--;
         fprintf(stdout,"%d\tA %d\t: leave\n", (*line)++, id);fflush(stdout);
+        (*adultsInCenter)--;
         (*totalAdults)++;
         (*left)++;
         sem_post(lock);
@@ -124,8 +122,8 @@ void simulChild(int id, int WT, int *adultsInCenter, int *childsInCenter, int *t
         }
 
         sem_wait(lock);
-        fprintf(stdout,"%d\tC %d\t: enter\n", (*line)++, id);fflush(stdout);
         (*childsInCenter)++;
+        fprintf(stdout,"%d\tC %d\t: enter\n", (*line)++, id);fflush(stdout);
         sem_post(lock);
 
         usleep(WT);
@@ -135,9 +133,12 @@ void simulChild(int id, int WT, int *adultsInCenter, int *childsInCenter, int *t
         sem_post(lock);
 
         sem_wait(lock);
-        fprintf(stdout,"%d\tC %d\t: leave\n", (*line)++, id);fflush(stdout);
         (*childsInCenter)--;
+        fprintf(stdout,"%d\tC %d\t: leave\n", (*line)++, id);fflush(stdout);
         (*left)++;
+        if(*childsInCenter < (*adultsInCenter - *waitingLeave) * 3 && *waitingEnter){
+            sem_post(enter);
+        }
         sem_post(lock);
 
         sem_wait(lock);
